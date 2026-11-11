@@ -38,13 +38,28 @@ describe("createServer", () => {
 });
 
 describe("интеграция через MCP-клиент", () => {
-  it("регистрирует 14 тулов и 2 промпта", async () => {
+  it("регистрирует 23 тула (14 чтения + 9 записи) и 2 промпта", async () => {
     const client = await connectClient();
     const { tools } = await client.listTools();
     const { prompts } = await client.listPrompts();
-    expect(tools).toHaveLength(14);
+    expect(tools).toHaveLength(23);
+    const byName = Object.fromEntries(tools.map((t) => [t.name, t]));
+    expect(byName["list_vacancies"].annotations?.readOnlyHint).toBe(true);
+    expect(byName["change_applicant_status"].annotations?.readOnlyHint).toBe(false);
     expect(prompts).toHaveLength(2);
     expect(tools.map((t) => t.name)).toContain("list_vacancy_applicants");
+  });
+
+  it("HUNTFLOW_READ_ONLY=1 скрывает инструменты записи", async () => {
+    process.env.HUNTFLOW_READ_ONLY = "1";
+    try {
+      const client = await connectClient();
+      const { tools } = await client.listTools();
+      expect(tools).toHaveLength(14);
+      expect(tools.some((t) => t.name === "create_applicant")).toBe(false);
+    } finally {
+      delete process.env.HUNTFLOW_READ_ONLY;
+    }
   });
 
   it("курируемый тул отдаёт валидный structuredContent (проходит outputSchema)", async () => {

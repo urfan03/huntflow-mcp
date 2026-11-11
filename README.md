@@ -79,6 +79,8 @@ npx @smithery/cli install @theyahia/huntflow-mcp
 | `HUNTFLOW_REFRESH_TOKEN` | нет | Refresh-токен — включает авто-обновление при 401 |
 | `HUNTFLOW_TOKEN_FILE` | нет | Файл для хранения ротированной пары (по умолчанию `~/.huntflow-mcp/token.json`) |
 | `HUNTFLOW_BASE_URL` | нет | По умолчанию `https://api.huntflow.ru/v2` |
+| `HUNTFLOW_READ_ONLY` | нет | `1` — отключить инструменты записи (останутся 14 инструментов чтения) |
+| `NODE_OPTIONS` | нет | `--use-system-ca` — если запросы падают с ошибкой сертификата (корпоративный прокси) |
 | `HUNTFLOW_USER_AGENT` | нет | User-Agent (обязателен для API; есть дефолт) |
 | `HUNTFLOW_TIMEOUT_MS` | нет | Таймаут запроса, мс (по умолчанию 10000) |
 | `HUNTFLOW_DISABLE_RATELIMIT` | нет | `1` — отключить клиентский лимит 10 req/s |
@@ -87,7 +89,9 @@ npx @smithery/cli install @theyahia/huntflow-mcp
 | `HUNTFLOW_HTTP_SECRET` | нет | Если задан — требует `Authorization: Bearer <secret>` на `/mcp` |
 | `HUNTFLOW_ALLOWED_HOSTS` | нет | Список host:port для защиты от DNS-rebinding |
 
-## Инструменты (14)
+## Инструменты (23)
+
+### Чтение (14)
 
 | Инструмент | Описание |
 |------------|----------|
@@ -105,6 +109,22 @@ npx @smithery/cli install @theyahia/huntflow-mcp
 | `list_rejection_reasons` | Справочник причин отказа |
 | `list_divisions` | Справочник подразделений |
 | `list_tags` | Справочник тегов |
+
+### Запись (9)
+
+Меняют данные в Huntflow от имени владельца токена. Удаления нет. Отключаются целиком через `HUNTFLOW_READ_ONLY=1`.
+
+| Инструмент | Описание |
+|------------|----------|
+| `create_applicant` | Создать кандидата |
+| `update_applicant` | Изменить поля кандидата (только переданные) |
+| `add_applicant_to_vacancy` | Прикрепить кандидата к вакансии на этап |
+| `change_applicant_status` | Перевести кандидата на другой этап (отказ с причиной, найм) |
+| `add_applicant_comment` | Комментарий в ленту кандидата |
+| `set_applicant_tags` | Задать теги кандидата (заменяет весь список) |
+| `create_vacancy` | Создать вакансию |
+| `update_vacancy` | Изменить поля вакансии (только переданные) |
+| `set_vacancy_state` | Закрыть / приостановить / возобновить вакансию |
 
 Списочные инструменты возвращают курированный набор полей (экономия токенов) + `structuredContent`; передайте `raw: true` для полного сырого ответа. Пагинация — параметры `page`/`count`.
 

@@ -3,6 +3,18 @@
 Все значимые изменения проекта документируются в этом файле.
 Формат основан на [Keep a Changelog](https://keepachangelog.com/ru/1.0.0/).
 
+## [1.3.0] - 2026-11-11
+
+### Добавлено
+- **Инструменты записи (9)**: `create_applicant`, `update_applicant`, `add_applicant_to_vacancy`, `change_applicant_status`, `add_applicant_comment`, `set_applicant_tags`, `create_vacancy`, `update_vacancy`, `set_vacancy_state`. Тела запросов сверены с OpenAPI-спекой. Удаление не реализовано намеренно.
+- `HUNTFLOW_READ_ONLY=1` — не регистрировать инструменты записи.
+- Аннотации инструментов (`readOnlyHint` / `destructiveHint` / `idempotentHint`), чтобы клиент отличал чтение от записи.
+
+### Изменено
+- `POST` повторяется только на `429`: повтор после `5xx`/обрыва сети мог создать дубль.
+- Ответы без тела (`204`) обрабатываются корректно.
+- Сетевая ошибка показывает настоящую причину (`err.cause`) и подсказку про `NODE_OPTIONS=--use-system-ca` при ошибке сертификата.
+
 ## [1.2.1] - 2026-11-11
 
 ### Исправлено

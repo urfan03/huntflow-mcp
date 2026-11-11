@@ -306,13 +306,16 @@ export async function hfRequest(
   let attempt = 0; // считаем ТОЛЬКО ретраи 429/5xx/сети, не refresh
   let triedRefresh = false;
   let triedEnvFallback = false;
+  // POST не идемпотентен: повтор после 5xx/обрыва сети может создать дубль (кандидата, комментарий).
+  // Поэтому POST повторяем только на 429 — такой запрос сервер гарантированно не обработал.
+  const safeToRepeat = method.toUpperCase() !== "POST";
 
   for (;;) {
     let response: Response;
     try {
       response = await rawFetch(method, fullPath, { body: opts.body, auth: state!.access_token });
     } catch (err) {
-      if (isRetriableNetworkError(err) && attempt + 1 < MAX_RETRIES) {
+      if (safeToRepeat && isRetriableNetworkError(err) && attempt + 1 < MAX_RETRIES) {
         attempt++;
         await backoff(attempt);
         continue;
@@ -321,7 +324,13 @@ export async function hfRequest(
     }
 
     if (response.ok) {
-      return await response.json();
+      // Часть write-эндпоинтов отвечает 204 без тела (например, закрытие вакансии).
+      if (response.status === 204) return { ok: true };
+      try {
+        return await response.json();
+      } catch {
+        return { ok: true };
+      }
     }
 
     const status = response.status;
@@ -348,7 +357,7 @@ export async function hfRequest(
       );
     }
 
-    if ((status === 429 || status >= 500) && attempt + 1 < MAX_RETRIES) {
+    if ((status === 429 || (status >= 500 && safeToRepeat)) && attempt + 1 < MAX_RETRIES) {
       attempt++;
       await backoff(attempt, parseRetryAfter(response));
       continue;
@@ -361,6 +370,15 @@ export async function hfRequest(
 /** GET-обёртка: путь уже содержит query-string (как строят тулы). */
 export async function hfGet(path: string): Promise<unknown> {
   return hfRequest("GET", path);
+}
+
+/** Запись: POST/PUT/PATCH с JSON-телом. */
+export async function hfWrite(
+  method: "POST" | "PUT" | "PATCH",
+  path: string,
+  body?: unknown,
+): Promise<unknown> {
+  return hfRequest(method, path, { body });
 }
 
 /** Сброс состояния модуля — только для тестов. */

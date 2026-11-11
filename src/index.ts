@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { realpathSync } from "node:fs";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import type { ToolAnnotations } from "@modelcontextprotocol/sdk/types.js";
 import { VERSION } from "./version.js";
 import { toolStructured, toolText } from "./format.js";
 import {
@@ -47,7 +48,32 @@ import {
   handleListTags,
 } from "./tools/dictionaries.js";
 
-const TOOL_COUNT = 14;
+import {
+  createApplicantSchema,
+  handleCreateApplicant,
+  updateApplicantSchema,
+  handleUpdateApplicant,
+  addApplicantToVacancySchema,
+  handleAddApplicantToVacancy,
+  changeApplicantStatusSchema,
+  handleChangeApplicantStatus,
+  addApplicantCommentSchema,
+  handleAddApplicantComment,
+  setApplicantTagsSchema,
+  handleSetApplicantTags,
+  createVacancySchema,
+  handleCreateVacancy,
+  updateVacancySchema,
+  handleUpdateVacancy,
+  setVacancyStateSchema,
+  handleSetVacancyState,
+} from "./tools/write.js";
+
+const READ_TOOL_COUNT = 14;
+const WRITE_TOOL_COUNT = 9;
+// HUNTFLOW_READ_ONLY=1 — не регистрировать инструменты записи.
+const readOnly = () => /^(1|true|yes)$/i.test(process.env.HUNTFLOW_READ_ONLY || "");
+const toolCount = () => READ_TOOL_COUNT + (readOnly() ? 0 : WRITE_TOOL_COUNT);
 const PROMPT_COUNT = 2;
 
 type AnyObject = z.ZodObject<z.ZodRawShape>;
@@ -70,7 +96,12 @@ function registerStructured<S extends AnyObject>(
 ): void {
   server.registerTool(
     name,
-    { description, inputSchema: inputSchema.shape, outputSchema: outputSchema as never },
+    {
+      description,
+      inputSchema: inputSchema.shape,
+      outputSchema: outputSchema as never,
+      annotations: { readOnlyHint: true },
+    },
     async (args) => {
       try {
         return toolStructured(await handler(args as z.infer<S>));
@@ -88,13 +119,34 @@ function registerText<S extends AnyObject>(
   description: string,
   inputSchema: S,
   handler: (args: z.infer<S>) => Promise<unknown>,
+  annotations: ToolAnnotations = { readOnlyHint: true },
 ): void {
-  server.registerTool(name, { description, inputSchema: inputSchema.shape }, async (args) => {
-    try {
-      return toolText(await handler(args as z.infer<S>));
-    } catch (e) {
-      return errorResult(e);
-    }
+  server.registerTool(
+    name,
+    { description, inputSchema: inputSchema.shape, annotations },
+    async (args) => {
+      try {
+        return toolText(await handler(args as z.infer<S>));
+      } catch (e) {
+        return errorResult(e);
+      }
+    },
+  );
+}
+
+/** Регистрирует инструмент записи: меняет данные, но ничего не удаляет. */
+function registerWrite<S extends AnyObject>(
+  server: McpServer,
+  name: string,
+  description: string,
+  inputSchema: S,
+  handler: (args: z.infer<S>) => Promise<unknown>,
+  idempotent = false,
+): void {
+  registerText(server, name, description, inputSchema, handler, {
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: idempotent,
   });
 }
 
@@ -226,6 +278,84 @@ export function createServer(): McpServer {
     handleGetResume,
   );
 
+  // --- Запись (отключается HUNTFLOW_READ_ONLY=1) ---
+  if (!readOnly()) {
+    registerWrite(
+      server,
+      "create_applicant",
+      "Создать кандидата в базе. Перед созданием проверьте через search_applicants, что его ещё нет.",
+      createApplicantSchema,
+      handleCreateApplicant,
+    );
+
+    registerWrite(
+      server,
+      "update_applicant",
+      "Изменить поля кандидата (имя, контакты, должность, зарплата). Меняются только переданные поля.",
+      updateApplicantSchema,
+      handleUpdateApplicant,
+      true,
+    );
+
+    registerWrite(
+      server,
+      "add_applicant_to_vacancy",
+      "Прикрепить кандидата к вакансии на указанный этап подбора.",
+      addApplicantToVacancySchema,
+      handleAddApplicantToVacancy,
+    );
+
+    registerWrite(
+      server,
+      "change_applicant_status",
+      "Перевести кандидата на другой этап подбора по вакансии (в т.ч. отказ с причиной или найм).",
+      changeApplicantStatusSchema,
+      handleChangeApplicantStatus,
+    );
+
+    registerWrite(
+      server,
+      "add_applicant_comment",
+      "Добавить комментарий в ленту кандидата (по вакансии или личную заметку).",
+      addApplicantCommentSchema,
+      handleAddApplicantComment,
+    );
+
+    registerWrite(
+      server,
+      "set_applicant_tags",
+      "Задать теги кандидата. Заменяет весь список тегов — передавайте и те, что нужно сохранить.",
+      setApplicantTagsSchema,
+      handleSetApplicantTags,
+      true,
+    );
+
+    registerWrite(
+      server,
+      "create_vacancy",
+      "Создать вакансию.",
+      createVacancySchema,
+      handleCreateVacancy,
+    );
+
+    registerWrite(
+      server,
+      "update_vacancy",
+      "Изменить поля вакансии (название, зарплата, описание, приоритет). Меняются только переданные поля.",
+      updateVacancySchema,
+      handleUpdateVacancy,
+      true,
+    );
+
+    registerWrite(
+      server,
+      "set_vacancy_state",
+      "Закрыть, приостановить или возобновить вакансию.",
+      setVacancyStateSchema,
+      handleSetVacancyState,
+    );
+  }
+
   // --- Скиллы / Prompts ---
   server.registerPrompt(
     "skill-applicants",
@@ -323,7 +453,7 @@ async function startHttp(server: McpServer): Promise<void> {
         JSON.stringify({
           status: "ok",
           version: VERSION,
-          tools: TOOL_COUNT,
+          tools: toolCount(),
           prompts: PROMPT_COUNT,
         }),
       );
@@ -350,7 +480,7 @@ async function main() {
     const transport = new StdioServerTransport();
     await server.connect(transport);
     console.error(
-      `[huntflow-mcp] Сервер запущен (stdio). ${TOOL_COUNT} инструментов, ${PROMPT_COUNT} скилла.`,
+      `[huntflow-mcp] Сервер запущен (stdio). ${toolCount()} инструментов, ${PROMPT_COUNT} скилла.`,
     );
   }
 }

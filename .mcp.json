@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "huntflow": {
+      "command": "npx",
+      "args": ["-y", "@theyahia/huntflow-mcp"],
+      "env": { "HUNTFLOW_TOKEN": "<YOUR_TOKEN>" }
+    }
+  }
+}

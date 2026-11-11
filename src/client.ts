@@ -248,8 +248,17 @@ function parseRetryAfter(resp: Response): number | undefined {
   return undefined;
 }
 
+// Ошибки проверки TLS-сертификата (корпоративный прокси/антивирус с подменой сертификата).
+function isTlsCertError(err: unknown): boolean {
+  const cause = (err as { cause?: { code?: string; message?: string } })?.cause;
+  return /CERT|SELF_SIGNED|UNABLE_TO_VERIFY|certificate/i.test(
+    `${cause?.code ?? ""} ${cause?.message ?? ""}`,
+  );
+}
+
 function isRetriableNetworkError(err: unknown): boolean {
   if (err instanceof DOMException && err.name === "AbortError") return true; // таймаут
+  if (isTlsCertError(err)) return false; // повтор не поможет
   if (err instanceof Error) {
     const code = (err as Error & { cause?: { code?: string } }).cause?.code;
     if (
@@ -267,7 +276,16 @@ function normalizeNetworkError(err: unknown): Error {
   if (err instanceof DOMException && err.name === "AbortError") {
     return new Error(`HuntFlow: таймаут запроса (${timeoutMs()}ms)`);
   }
-  if (err instanceof Error) return new Error(`HuntFlow: сетевая ошибка — ${err.message}`);
+  if (err instanceof Error) {
+    // У fetch настоящая причина лежит в err.cause — без неё видно только «fetch failed».
+    const cause = (err as Error & { cause?: { code?: string; message?: string } }).cause;
+    const why = [cause?.code, cause?.message].filter(Boolean).join(": ");
+    const hint = isTlsCertError(err)
+      ? ` Сертификат не прошёл проверку (корпоративный прокси/антивирус?): добавьте в env сервера ` +
+        `NODE_OPTIONS=--use-system-ca (Node ≥ 22.15) или NODE_EXTRA_CA_CERTS=<путь к корневому .pem>.`
+      : "";
+    return new Error(`HuntFlow: сетевая ошибка — ${err.message}${why ? ` (${why})` : ""}.${hint}`);
+  }
   return new Error("HuntFlow: неизвестная сетевая ошибка");
 }
 
